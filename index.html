@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image to G-Code Converter</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        input, button { margin: 5px; padding: 10px; }
+        textarea { width: 90%; height: 200px; }
+        canvas { border: 1px solid black; display: none; }
+        .jog-controls, .console, .connection { margin: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Image to G-Code Converter</h1>
+    
+    <h2>Connection</h2>
+    <div class="connection">
+        <label for="portSelect">Port:</label>
+        <select id="portSelect"></select>
+        <label for="baudRate">Baud Rate:</label>
+        <select id="baudRate">
+            <option value="9600">9600</option>
+            <option value="115200">115200</option>
+        </select>
+        <button onclick="connectToNodeMCU()">Connect</button>
+    </div>
+
+    <input type="file" id="imageInput" accept="image/*">
+    <input type="file" id="gcodeInput" accept=".gcode">
+    <br>
+    <button onclick="processImage()">Convert Image to G-Code</button>
+    <button onclick="loadGCodeFile()">Load G-Code File</button>
+    <button onclick="sendToNodeMCU()">Send to NodeMCU</button>
+    <br>
+    <textarea id="gcodeOutput" readonly></textarea>
+    <canvas id="canvas"></canvas>
+
+    <h2>Jog Controls</h2>
+    <div class="jog-controls">
+        <button onclick="sendJogCommand('X+', 10)">X+</button>
+        <button onclick="sendJogCommand('X-', 10)">X-</button>
+        <button onclick="sendJogCommand('Y+', 10)">Y+</button>
+        <button onclick="sendJogCommand('Y-', 10)">Y-</button>
+        <button onclick="sendJogCommand('Z+', 10)">Z+ (Spindle Up)</button>
+        <button onclick="sendJogCommand('Z-', 10)">Z- (Spindle Down)</button>
+    </div>
+
+    <h2>G-Code Console</h2>
+    <div class="console">
+        <input type="text" id="commandInput" placeholder="Enter G-Code Command">
+        <button onclick="sendCustomCommand()">Send</button>
+    </div>
+
+    <script>
+        function processImage() {
+            let input = document.getElementById("imageInput");
+            if (!input.files.length) {
+                alert("Please upload an image.");
+                return;
+            }
+            
+            let img = new Image();
+            let reader = new FileReader();
+            reader.onload = function(event) {
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(input.files[0]);
+            
+            img.onload = function() {
+                let canvas = document.getElementById("canvas");
+                let ctx = canvas.getContext("2d");
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+                let imageData = ctx.getImageData(0, 0, img.width, img.height).data;
+                
+                let gcode = "";
+                for (let y = 0; y < img.height; y += 10) {
+                    for (let x = 0; x < img.width; x += 10) {
+                        let i = (y * img.width + x) * 4;
+                        let brightness = (imageData[i] + imageData[i + 1] + imageData[i + 2]) / 3;
+                        let z = brightness / 255 * 10;
+                        gcode += `G01 X${x} Y${y} Z${z} F500\n`;
+                    }
+                }
+                document.getElementById("gcodeOutput").value = gcode;
+            };
+        }
+
+        function loadGCodeFile() {
+            let input = document.getElementById("gcodeInput");
+            if (!input.files.length) {
+                alert("Please upload a G-Code file.");
+                return;
+            }
+            
+            let reader = new FileReader();
+            reader.onload = function(event) {
+                document.getElementById("gcodeOutput").value = event.target.result;
+            };
+            reader.readAsText(input.files[0]);
+        }
+
+        function sendToNodeMCU() {
+            let gcode = document.getElementById("gcodeOutput").value;
+            if (gcode.trim() === "") {
+                alert("Generate or load G-Code first!");
+                return;
+            }
+            
+            fetch("http://192.168.4.1/sendGCode", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ gcode })
+            })
+            .then(response => response.text())
+            .then(data => alert("Response: " + data))
+            .catch(error => alert("Error: " + error));
+        }
+
+        function sendJogCommand(axis, distance) {
+            let command = `G91\nG01 ${axis}${distance} F500\nG90`;
+            fetch("http://192.168.4.1/sendGCode", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ gcode: command })
+            })
+            .then(response => response.text())
+            .then(data => alert("Jog Response: " + data))
+            .catch(error => alert("Error: " + error));
+        }
+
+        function sendCustomCommand() {
+            let command = document.getElementById("commandInput").value;
+            if (command.trim() === "") {
+                alert("Enter a G-Code command first!");
+                return;
+            }
+            
+            fetch("http://192.168.4.1/sendGCode", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ gcode: command })
+            })
+            .then(response => response.text())
+            .then(data => alert("Command Response: " + data))
+            .catch(error => alert("Error: " + error));
+        }
+    </script>
+</body>
+</html>
